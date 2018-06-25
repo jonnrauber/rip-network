@@ -177,8 +177,6 @@ void* updateDV(void* data) {
 	distance_vector* dv = (distance_vector *)data;
 	int changes;
 	
-	printf("teste\n");
-	
 	//updateMyTable(dv_table_, dv, &changes);
 	//updateTable(newTable);
 	//print_dv_table();
@@ -247,6 +245,7 @@ void* receiver_func(void *data) {
 				
 			break;
 			case TYPE_DV: ;
+				printf("Recebido vetor distância do roteador %d.\n", pck->id_src);
 				/* 
 					cria thread para aplicar a atualização de vetor-distância,
 					pois pode ter concorrência
@@ -305,8 +304,8 @@ void* sender_func(void *data) {
 		neighbor_index = whos_the_next(id_dst);
 		next_link = &neighborhood[neighbor_index];
 		send_message(&pck, next_link);
-		
 	}
+	pthread_exit(NULL);
 }
 
 /**
@@ -319,14 +318,17 @@ void* dv_sender_func(void *data) {
 	pck.type = TYPE_DV;
 	
 	while (1) {
+		printf("envio periodico de vetor distancia\n");
 		memmove(pck.dv, dv_table_.distance[LOCAL_ROUTER], sizeof(distance_vector) * LOCAL_ROUTER);
 		
 		for (i = 0; i < qt_links; i++) {
 			send_message(&pck, &neighborhood[i]);
 		}
+		printf("vetor distancia enviado a todos os vizinhos, esperando %d segundos para reenviar...\n", DV_RESEND_INTERVAL);
+		sleep (DV_RESEND_INTERVAL);
 	}
-	sleep (DV_RESEND_INTERVAL);
 	
+	pthread_exit(NULL);
 }
 
 /**
@@ -337,8 +339,8 @@ void start_router() {
 	pthread_t threads[3];
 	pthread_create(&(threads[0]), NULL, receiver_func, NULL);
 	pthread_create(&(threads[1]), NULL, sender_func, NULL);
-	//pthread_create(&(threads[2]), NULL, dv_sender_func, NULL);
-	//pthread_join(threads[2], NULL);
+	pthread_create(&(threads[2]), NULL, dv_sender_func, NULL);
+	pthread_join(threads[2], NULL);
 	pthread_join(threads[1], NULL);
 	pthread_join(threads[0], NULL);
 }
