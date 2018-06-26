@@ -6,9 +6,11 @@
 #include <pthread.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
-#include <time.h>
+#include <sys/time.h>
 #include "t2.h"
 
+//necessário mutex para proteger escrita concorrente na dv_table_
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; 
 unsigned int LOCAL_ROUTER;
 unsigned int LOCAL_ROUTER_PORT;
 neighbor* neighborhood; 	//enlaces deste roteador
@@ -21,6 +23,23 @@ dv_table dv_table_;		//tabela vetor-distância deste roteador
 void die(char *s) {
     perror(s);
     exit(1);
+}
+
+/**
+	Imprime um unico vetor distancia passado como argumento.
+*/
+void print_unique_dv(distance_vector* dv) {
+	int i;
+	bool print_comma = false;
+	printf("vetor: ");
+	for (i = 0; i < MAX_ROUTERS; i++) {
+		if (dv[i].allocated) {
+			if (print_comma) printf(", ");
+			printf("%d -> %d", i, dv[i].cost);
+			print_comma = true;
+		}
+	}
+	printf("\n");
 }
 
 /**
@@ -170,23 +189,107 @@ unsigned int whos_the_next(int id_dst) {
 }
 
 /**
+	Recebe um vetor distância do vizinho e aplica as alterações se necessário.
+*/
+bool update_dv_table(distance_vector* dv, int id_neighbor) {
+	// Temos que alterar primeiro uma cópia da tabela de vetor distancia,
+	// pois podem existir mais threads querendo alterá-la concorrentemente.
+	// Para não segurar muito tempo os locks, faremos uma cópia e só no fim
+	// adquirimos o lock através do mutex para alterar a dv_table_ original. 
+	dv_table dv_table_copy = dv_table_;
+	bool retorno = false;
+	int i, j;
+    for (i = 0; i < MAX_ROUTERS; i++) {
+		//i -> Destino
+		if (!dv[i].allocated) continue;
+
+        dv_table_copy.distance[LOCAL_ROUTER][i].allocated = 1;
+
+        if (! dv_table_copy.distance[id_neighbor][i].allocated) {
+            retorno = true;
+            
+            for (j = 0; j < qt_links; j++) {
+				int aux = neighborhood[j].id_dst;
+                if (! dv_table_copy.distance[aux][i].allocated) {
+                    dv_table_copy.distance[aux][i].allocated = 1;
+                    dv_table_copy.distance[aux][i].cost = INFINITE;
+                }
+            }
+        }
+    }
+
+	//preenche a variavel auxiliar prev_cost para verificar depois se
+	//deve ser feita atualização de custos
+    for (i = 0; i < MAX_ROUTERS; i++) {
+        dv_table_copy.distance[id_neighbor][i].cost = dv[i].cost;
+        //myTable.info[message.origin][i].destination = message.info[i].destination;
+
+        dv_table_copy.distance[LOCAL_ROUTER][i].prev_cost = dv_table_copy.distance[LOCAL_ROUTER][i].cost;
+        dv_table_copy.distance[LOCAL_ROUTER][i].cost = INFINITE;
+        if (i == LOCAL_ROUTER)
+             dv_table_copy.distance[LOCAL_ROUTER][i].cost = 0;
+    }
+
+	// recalcula o custo para cada destino i
+    for (i = 0; i < MAX_ROUTERS; i++) {
+        if (i == LOCAL_ROUTER)
+            continue;
+
+        int cost_to_i = INFINITE;
+        
+        for (j = 0; j < qt_links; j++) {
+			int aux = neighborhood[j].id_dst;
+			if (aux == i)
+				cost_to_i = neighborhood[j].cost;
+		}
+
+        for (j = 0; j < MAX_ROUTERS; j++) {
+            if (! dv_table_copy.distance[i][j].allocated)
+                continue;
+
+			int cost_aux = dv_table_copy.distance[i][j].cost;
+
+            int sum = cost_to_i + cost_aux;
+            if (dv_table_copy.distance[LOCAL_ROUTER][j].cost >= sum) {
+                dv_table_copy.distance[LOCAL_ROUTER][j].cost = sum;
+                dv_table_copy.distance[LOCAL_ROUTER][j].id_neighbor = i;
+            }
+        }
+    }
+
+    for (i = 0; i < MAX_ROUTERS; i++) {
+
+        if (! dv_table_copy.distance[LOCAL_ROUTER][i].allocated)
+            continue;
+
+        if (dv_table_copy.distance[LOCAL_ROUTER][i].cost != dv_table_.distance[LOCAL_ROUTER][i].prev_cost)
+            retorno = true;
+    }
+    
+    pthread_mutex_lock(&mutex);
+	dv_table_ = dv_table_copy;
+	pthread_mutex_unlock(&mutex);
+    
+	return retorno;
+}
+
+/**
 	Recebe o vetor-distância do vizinho, aplica as atualizações e 
 	envia novamente aos vizinhos em caso de alteração.
 */
-void* updateDV(void* data) {
-	distance_vector* dv = (distance_vector *)data;
-	int changes;
+void* update_dv(void* data) {
+	dv_payload* dv_msg = (dv_payload *)data;
+	printf("tabela antes de mudar\n");
+	print_dv_table();
+	sleep(3);
+	bool changes = update_dv_table(dv_msg->dv, dv_msg->id_src);
 	
-	//updateMyTable(dv_table_, dv, &changes);
-	//updateTable(newTable);
-	//print_dv_table();
-	
-	//if(updated){
-		//int id = arg->router->id;
-		//list_t* routers = arg->routers;
-		//list_t* neighboors = arg->neighboors;
-		//resend(routers, neighboors, id);
-	//}
+	if (changes) {
+		printf("tabela depois de mudar\n");
+		print_dv_table();
+		send_dv();
+	}
+	pthread_exit(NULL);
 }
 
 /**
@@ -245,13 +348,15 @@ void* receiver_func(void *data) {
 				
 			break;
 			case TYPE_DV: ;
-				printf("Recebido vetor distância do roteador %d.\n", pck->id_src);
+				printf("Recebido vetor distância do roteador %d. Conteúdo: \n", pck->id_src);
+				print_unique_dv(pck->dv.dv);
+				
 				/* 
 					cria thread para aplicar a atualização de vetor-distância,
 					pois pode ter concorrência
 				*/
 				pthread_t thread;
-				pthread_create(&thread, NULL, updateDV, pck->dv);
+				pthread_create(&thread, NULL, update_dv, &pck->dv);
 			break;
 			default:
 			break;
@@ -309,21 +414,31 @@ void* sender_func(void *data) {
 }
 
 /**
-	Função a ser executada na thread que reenvia o vetor-distância.
+	Envia o vetor distância para os vizinhos.
 */
-void* dv_sender_func(void *data) {
+void send_dv() {
 	int i;
 	packet pck;
 	pck.id_src = LOCAL_ROUTER;
 	pck.type = TYPE_DV;
+	pck.dv.id_src = LOCAL_ROUTER;
+	memcpy(pck.dv.dv, dv_table_.distance[LOCAL_ROUTER], sizeof(distance_vector) * MAX_ROUTERS);
+		
+	print_unique_dv(pck.dv.dv);
+	
+	for (i = 0; i < qt_links; i++) {
+		send_message(&pck, &neighborhood[i]);
+	}
+}
+
+/**
+	Função a ser executada na thread que reenvia o vetor-distância.
+*/
+void* dv_sender_func(void *data) {
 	
 	while (1) {
 		printf("envio periodico de vetor distancia\n");
-		memmove(pck.dv, dv_table_.distance[LOCAL_ROUTER], sizeof(distance_vector) * LOCAL_ROUTER);
-		
-		for (i = 0; i < qt_links; i++) {
-			send_message(&pck, &neighborhood[i]);
-		}
+		send_dv();
 		printf("vetor distancia enviado a todos os vizinhos, esperando %d segundos para reenviar...\n", DV_RESEND_INTERVAL);
 		sleep (DV_RESEND_INTERVAL);
 	}
@@ -362,6 +477,11 @@ void print_neighbors() {
 */
 void print_dv_table() {
 	int i, j;
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+	
+	printf("timestamp %lu\n", tv.tv_sec);
 
 	//cabeçalho da tabela
 	printf("\t|");
@@ -392,18 +512,32 @@ void print_dv_table() {
 	Inicia o vetor-distância.
 */
 void start_distance_vector() {
-	int i;
+	int i, j;
 
-	//distance_vector.distance[LOCAL_ROUTER] refere-se às distancias deste roteador para os demais
+	for (i = 0; i < MAX_ROUTERS; i++) {
+		for (j = 0; j < MAX_ROUTERS; j++) {
+			dv_table_.distance[i][j].allocated = false; //inicializa vazia
+		}
+	}
+	
 	dv_table_.distance[LOCAL_ROUTER][LOCAL_ROUTER].cost = 0;
-	dv_table_.distance[LOCAL_ROUTER][LOCAL_ROUTER].active = true;
 	dv_table_.distance[LOCAL_ROUTER][LOCAL_ROUTER].allocated = true;
-	dv_table_.distance[LOCAL_ROUTER][LOCAL_ROUTER].id_neighbor = 0;
+	dv_table_.distance[LOCAL_ROUTER][LOCAL_ROUTER].id_neighbor = LOCAL_ROUTER;
+	
 	for (i = 0; i < qt_links; i++) {
 		dv_table_.distance[LOCAL_ROUTER][neighborhood[i].id_dst].cost = neighborhood[i].cost;
-		dv_table_.distance[LOCAL_ROUTER][neighborhood[i].id_dst].active = true;
 		dv_table_.distance[LOCAL_ROUTER][neighborhood[i].id_dst].allocated = true;
 		dv_table_.distance[LOCAL_ROUTER][neighborhood[i].id_dst].id_neighbor = neighborhood[i].id_dst;
+		
+		dv_table_.distance[neighborhood[i].id_dst][LOCAL_ROUTER].cost = INFINITE;
+		dv_table_.distance[neighborhood[i].id_dst][LOCAL_ROUTER].allocated = true;
+		dv_table_.distance[neighborhood[i].id_dst][LOCAL_ROUTER].id_neighbor = LOCAL_ROUTER;
+		
+		for (j = 0; j < qt_links; j++) {
+			dv_table_.distance[neighborhood[i].id_dst][neighborhood[j].id_dst].cost = INFINITE;
+			dv_table_.distance[neighborhood[i].id_dst][neighborhood[j].id_dst].allocated = true;
+			dv_table_.distance[neighborhood[i].id_dst][neighborhood[j].id_dst].id_neighbor = neighborhood[j].id_dst;
+		}
 	}
 }
 
