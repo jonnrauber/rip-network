@@ -224,6 +224,9 @@ bool update_dv_table(distance_vector* dv, int id_src) {
 	printf("\n");
 
 	for (i = 0; i < MAX_ROUTERS; i++) {
+		if (dv_table_.distance[LOCAL_ROUTER][i].allocated == false)
+			continue;
+		
 		if (i == LOCAL_ROUTER) {
 			dv_table_.distance[LOCAL_ROUTER][LOCAL_ROUTER].cost = 0;
 			continue;
@@ -232,7 +235,7 @@ bool update_dv_table(distance_vector* dv, int id_src) {
 		int min_cost = INFINITE;
 		int neighbor_min_cost = i;
 		for (j = 0; j < qt_links; j++) {
-			int aux = neighborhood[j].id_dst;
+			int aux = neighborhood[j].id_dst; 
 			int cost = dv_table_.distance[aux][i].cost + dv_table_.distance[aux][LOCAL_ROUTER].cost;
 			if (cost < min_cost) {
 				min_cost = cost;
@@ -261,7 +264,6 @@ void* update_dv(void* data) {
 	dv_payload* dv_msg = (dv_payload *)data;
 	printf("tabela antes de mudar\n");
 	print_dv_table();
-	sleep(3);
 	bool changes = update_dv_table(dv_msg->dv, dv_msg->id_src);
 	
 	if (changes) {

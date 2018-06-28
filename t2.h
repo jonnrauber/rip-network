@@ -10,7 +10,7 @@
 #define TRIES_UNTIL_DESCONNECT 1
 #define TIMEOUT 5
 
-#define DV_RESEND_INTERVAL 60
+#define DV_RESEND_INTERVAL 15
 
 typedef struct {
 	int id_dst;
