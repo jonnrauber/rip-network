@@ -7,10 +7,10 @@
 #define TYPE_DATA 1
 #define TYPE_DV 2
 
-#define TRIES_UNTIL_DESCONNECT 3
+#define TRIES_UNTIL_DESCONNECT 1
 #define TIMEOUT 5
 
-#define DV_RESEND_INTERVAL 10
+#define DV_RESEND_INTERVAL 60
 
 typedef struct {
 	int id_dst;

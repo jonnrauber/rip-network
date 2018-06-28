@@ -191,85 +191,65 @@ unsigned int whos_the_next(int id_dst) {
 /**
 	Recebe um vetor distância do vizinho e aplica as alterações se necessário.
 */
-bool update_dv_table(distance_vector* dv, int id_neighbor) {
+bool update_dv_table(distance_vector* dv, int id_src) {
 	// Temos que alterar primeiro uma cópia da tabela de vetor distancia,
 	// pois podem existir mais threads querendo alterá-la concorrentemente.
 	// Para não segurar muito tempo os locks, faremos uma cópia e só no fim
 	// adquirimos o lock através do mutex para alterar a dv_table_ original. 
-	dv_table dv_table_copy = dv_table_;
+
+	pthread_mutex_lock(&mutex);
 	bool retorno = false;
 	int i, j;
-    for (i = 0; i < MAX_ROUTERS; i++) {
-		//i -> Destino
-		if (!dv[i].allocated) continue;
+    
 
-        dv_table_copy.distance[LOCAL_ROUTER][i].allocated = 1;
+	for (i = 0; i < MAX_ROUTERS; i++) {
+		if (dv[i].allocated == false)
+			continue;
 
-        if (! dv_table_copy.distance[id_neighbor][i].allocated) {
-            retorno = true;
-            
-            for (j = 0; j < qt_links; j++) {
+		dv_table_.distance[LOCAL_ROUTER][i].allocated = true;
+
+		if (dv_table_.distance[id_src][i].allocated == false) {
+			retorno = true;
+
+			for (j = 0; j < qt_links; j++) {
 				int aux = neighborhood[j].id_dst;
-                if (! dv_table_copy.distance[aux][i].allocated) {
-                    dv_table_copy.distance[aux][i].allocated = 1;
-                    dv_table_copy.distance[aux][i].cost = INFINITE;
-                }
-            }
-        }
-    }
+	            dv_table_.distance[aux][i].allocated = true;
+	            dv_table_.distance[aux][i].cost = INFINITE;
+	        }
+		}
+		printf("%d, ", dv[i].cost);
+		dv_table_.distance[id_src][i].cost = dv[i].cost;
+		dv_table_.distance[id_src][i].id_neighbor = dv[i].id_neighbor;
+	}
+	printf("\n");
 
-	//preenche a variavel auxiliar prev_cost para verificar depois se
-	//deve ser feita atualização de custos
-    for (i = 0; i < MAX_ROUTERS; i++) {
-        dv_table_copy.distance[id_neighbor][i].cost = dv[i].cost;
-        //myTable.info[message.origin][i].destination = message.info[i].destination;
-
-        dv_table_copy.distance[LOCAL_ROUTER][i].prev_cost = dv_table_copy.distance[LOCAL_ROUTER][i].cost;
-        dv_table_copy.distance[LOCAL_ROUTER][i].cost = INFINITE;
-        if (i == LOCAL_ROUTER)
-             dv_table_copy.distance[LOCAL_ROUTER][i].cost = 0;
-    }
-
-	// recalcula o custo para cada destino i
-    for (i = 0; i < MAX_ROUTERS; i++) {
-        if (i == LOCAL_ROUTER)
-            continue;
-
-        int cost_to_i = INFINITE;
-        
-        for (j = 0; j < qt_links; j++) {
-			int aux = neighborhood[j].id_dst;
-			if (aux == i)
-				cost_to_i = neighborhood[j].cost;
+	for (i = 0; i < MAX_ROUTERS; i++) {
+		if (i == LOCAL_ROUTER) {
+			dv_table_.distance[LOCAL_ROUTER][LOCAL_ROUTER].cost = 0;
+			continue;
 		}
 
-        for (j = 0; j < MAX_ROUTERS; j++) {
-            if (! dv_table_copy.distance[i][j].allocated)
-                continue;
+		int min_cost = INFINITE;
+		int neighbor_min_cost = i;
+		for (j = 0; j < qt_links; j++) {
+			int aux = neighborhood[j].id_dst;
+			int cost = dv_table_.distance[aux][i].cost + dv_table_.distance[aux][LOCAL_ROUTER].cost;
+			if (cost < min_cost) {
+				min_cost = cost;
+				neighbor_min_cost = aux;
+			}
+		}
 
-			int cost_aux = dv_table_copy.distance[i][j].cost;
+		if (min_cost < dv_table_.distance[LOCAL_ROUTER][i].cost) {
+			retorno = true;
+			dv_table_.distance[LOCAL_ROUTER][i].cost = min_cost;
+			dv_table_.distance[LOCAL_ROUTER][i].id_neighbor = neighbor_min_cost;
+		}
+	}
 
-            int sum = cost_to_i + cost_aux;
-            if (dv_table_copy.distance[LOCAL_ROUTER][j].cost >= sum) {
-                dv_table_copy.distance[LOCAL_ROUTER][j].cost = sum;
-                dv_table_copy.distance[LOCAL_ROUTER][j].id_neighbor = i;
-            }
-        }
-    }
-
-    for (i = 0; i < MAX_ROUTERS; i++) {
-
-        if (! dv_table_copy.distance[LOCAL_ROUTER][i].allocated)
-            continue;
-
-        if (dv_table_copy.distance[LOCAL_ROUTER][i].cost != dv_table_.distance[LOCAL_ROUTER][i].prev_cost)
-            retorno = true;
-    }
-    
-    pthread_mutex_lock(&mutex);
-	dv_table_ = dv_table_copy;
 	pthread_mutex_unlock(&mutex);
     
+    printf("src=%d, retorno = %d\n", id_src, retorno);
 	return retorno;
 }
 
@@ -424,7 +404,9 @@ void send_dv() {
 	pck.dv.id_src = LOCAL_ROUTER;
 	memcpy(pck.dv.dv, dv_table_.distance[LOCAL_ROUTER], sizeof(distance_vector) * MAX_ROUTERS);
 		
+	printf("vou mandar esse dv aqui: \n");
 	print_unique_dv(pck.dv.dv);
+	printf("\n");
 	
 	for (i = 0; i < qt_links; i++) {
 		send_message(&pck, &neighborhood[i]);
@@ -514,9 +496,10 @@ void print_dv_table() {
 void start_distance_vector() {
 	int i, j;
 
-	for (i = 0; i < MAX_ROUTERS; i++) {
+	for (i = 0; i < MAX_ROUTERS; i++) { 
 		for (j = 0; j < MAX_ROUTERS; j++) {
 			dv_table_.distance[i][j].allocated = false; //inicializa vazia
+			dv_table_.distance[i][j].cost = INFINITE;		
 		}
 	}
 	
