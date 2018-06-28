@@ -217,11 +217,9 @@ bool update_dv_table(distance_vector* dv, int id_src) {
 	            dv_table_.distance[aux][i].cost = INFINITE;
 	        }
 		}
-		printf("%d, ", dv[i].cost);
 		dv_table_.distance[id_src][i].cost = dv[i].cost;
 		dv_table_.distance[id_src][i].id_neighbor = dv[i].id_neighbor;
 	}
-	printf("\n");
 
 	for (i = 0; i < MAX_ROUTERS; i++) {
 		if (dv_table_.distance[LOCAL_ROUTER][i].allocated == false)
@@ -251,8 +249,6 @@ bool update_dv_table(distance_vector* dv, int id_src) {
 	}
 
 	pthread_mutex_unlock(&mutex);
-    
-    printf("src=%d, retorno = %d\n", id_src, retorno);
 	return retorno;
 }
 
@@ -478,7 +474,7 @@ void print_dv_table() {
 
 	//linhas do vetor distancia
 	for (i = 0; i < MAX_ROUTERS; i++) {
-		if (!dv_table_.distance[LOCAL_ROUTER][i].allocated)
+		if (!dv_table_.distance[i][LOCAL_ROUTER].allocated)
 			continue;
 
 		printf("%d\t|", i);
