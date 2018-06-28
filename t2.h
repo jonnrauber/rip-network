@@ -12,6 +12,9 @@
 
 #define DV_RESEND_INTERVAL 15
 
+#define PRINT_TABLE 1
+#define PRINT_AND_SEND_TABLE 2 
+
 typedef struct {
 	int id_dst;
 	char host_dst[16];
@@ -57,6 +60,7 @@ void* sender_func(void *data);
 void start_distance_vector();
 void start_router();
 void* update_dv(void* data);
-bool update_dv_table(distance_vector* dv, int id_neighbor);
+int update_dv_table(distance_vector* dv, int id_neighbor);
 unsigned int whos_the_next(int id_dst);
 void send_dv();
+void update_after_error(int id_dst);
