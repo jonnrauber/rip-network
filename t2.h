@@ -16,29 +16,35 @@
 #define PRINT_AND_SEND_TABLE 2 
 
 typedef struct {
+	//estrutura com os dados de um enlace vizinho
+	//id_src não é necessário pois será sempre LOCAL_ROUTER
 	int id_dst;
 	char host_dst[16];
 	int port_dst;
 	int cost;
-} neighbor; //id_src não é necessário pois será sempre LOCAL_ROUTER
+} neighbor;
 
 typedef struct {
+	//uma posição da matriz/tabela de roteamento
+	//id_dst é obtido através do index 'j' da matriz dv_table.distance[i][j]
 	int id_neighbor; 	//qual enlace de saída para chegar ao id_dst
-	int cost;			//custo do caminho
-	int prev_cost;		//usado para calcular a atualização dos custos
-	bool allocated;		
+	int cost;			//custo do menor caminho até id_dst
+	bool allocated;		//posição do vetor distância está sendo usada
 } distance_vector;
 
 typedef struct {
-	int id_src;
-	distance_vector dv[MAX_ROUTERS];
+	//estrutura da mensagem com o vetor distância
+	int id_src;			//roteador origem
+	distance_vector dv[MAX_ROUTERS]; //seu vetor distância
 } dv_payload;
 
 typedef struct {
+	//estrutura da matriz/tabela de roteamento
 	distance_vector distance[MAX_ROUTERS][MAX_ROUTERS];
 } dv_table;
 
 typedef struct {
+	//estrutura do pacote transmitido
 	short type; 
 	int id_src; 
 	int id_dst; 

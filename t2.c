@@ -340,7 +340,7 @@ void* update_dv(void* data) {
 void* receiver_func(void *data) {
 	struct sockaddr_in si_me, si_other;
 	unsigned int slen = sizeof(si_other), recv_len, neighbor_index;
-	int s, ack;
+	int s, ack, i;
 	
 	packet* pck;
 	neighbor* link;
@@ -376,7 +376,13 @@ void* receiver_func(void *data) {
 					pthread_mutex_unlock(&printf_mutex);
 				} else {
 					//se já estourou a quantidade de saltos máxima, para de encaminhar.
-					if (pck->jump > qt_links) break;
+					int qt_routers = 0;
+					for (i = 0; i < MAX_ROUTERS; i++) {
+						if (dv_table_.distance[LOCAL_ROUTER][i].allocated == true) 
+							qt_routers++;
+					}
+					
+					if (pck->jump > qt_routers) break;
 					(pck->jump)++;
 					//Se o roteador não é o destino, encaminha ao próximo roteador.
 					pthread_mutex_lock(&printf_mutex);
