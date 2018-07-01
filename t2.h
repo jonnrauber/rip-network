@@ -10,7 +10,7 @@
 #define TRIES_UNTIL_DESCONNECT 3
 #define TIMEOUT 2
 
-#define DV_RESEND_INTERVAL 15
+#define DV_RESEND_INTERVAL 10
 
 #define PRINT_TABLE 1
 #define PRINT_AND_SEND_TABLE 2 
@@ -39,12 +39,13 @@ typedef struct {
 } dv_table;
 
 typedef struct {
-	short type; //2B
-	int id_src; //4B
-	int id_dst; //4B
-	unsigned int seq_number; //4B
-	char data[100]; //100B
+	short type; 
+	int id_src; 
+	int id_dst; 
+	unsigned int seq_number;
+	char data[100];
 	dv_payload dv;
+	short jump;
 } packet;
 
 packet create_pck(int id_src, int id_dst, int type, void* message);

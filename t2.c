@@ -14,6 +14,7 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t printf_mutex = PTHREAD_MUTEX_INITIALIZER;
 unsigned int LOCAL_ROUTER;
 unsigned int LOCAL_ROUTER_PORT;
+unsigned int SEQ_NUMBER;
 neighbor* neighborhood; 	//enlaces deste roteador
 int qt_links;	 			//neighborhood.length()
 dv_table dv_table_;			//tabela vetor-distância deste roteador
@@ -131,16 +132,11 @@ void send_message(packet* pck, neighbor* link) {
 	int ack_received = 0;
 	int s;
 	
-	if(dv_table_.distance[LOCAL_ROUTER][link->id_dst].allocated == false) {
+	if(pck->type == TYPE_DATA && (
+			dv_table_.distance[LOCAL_ROUTER][link->id_dst].allocated == false ||
+			dv_table_.distance[LOCAL_ROUTER][link->id_dst].cost == INFINITE)) {
 		pthread_mutex_lock(&printf_mutex);
-		printf("Impossível alcançar o roteador %d.\n", link->id_dst);
-		pthread_mutex_unlock(&printf_mutex);
-		return;
-	}
-
-	if(dv_table_.distance[LOCAL_ROUTER][link->id_dst].cost == INFINITE){
-		pthread_mutex_lock(&printf_mutex);
-		printf("-----\nImpossível alcançar o roteador %d.\n-----\n", link->id_dst);
+		printf("-----\nImpossível alcançar o roteador %d.\n", link->id_dst);
 		pthread_mutex_unlock(&printf_mutex);
 		return;
 	}
@@ -180,10 +176,11 @@ void send_message(packet* pck, neighbor* link) {
 		pthread_mutex_lock(&printf_mutex);
 		printf("-----\nRoteador %d inalcançável após %d tentativas com estouro de timeout.\n", link->id_dst, TRIES_UNTIL_DESCONNECT);
 		
-		update_after_error(link->id_dst);
-		
-		printf("ERRO CALCULADO\n");
-		print_dv_table();
+		if (dv_table_.distance[link->id_dst][LOCAL_ROUTER].allocated == true) {
+			update_after_error(link->id_dst);
+			printf("ERRO CALCULADO\n");
+			print_dv_table();
+		}
 		printf("-----\n");
 		pthread_mutex_unlock(&printf_mutex);
 	}
@@ -233,7 +230,7 @@ unsigned int whos_the_next(int id_dst) {
 	}
 	
 	pthread_mutex_lock(&printf_mutex);
-	printf("Não é possível alcançar o roteador %d.\n", id_dst);
+	printf("-----\nNão é possível alcançar o roteador %d.\n-----\n", id_dst);
 	pthread_mutex_unlock(&printf_mutex);
 	return -1;
 }
@@ -292,6 +289,16 @@ int update_dv_table(distance_vector* dv, int id_src) {
 			if (dv_table_.distance[aux][LOCAL_ROUTER].allocated == true && cost < min_cost) {
 				min_cost = cost;
 				neighbor_min_cost = aux;
+			}
+		}
+		
+		for (j = 0; j < qt_links; j++) {
+			int aux = neighborhood[j].id_dst;
+			if (aux == i && dv_table_.distance[aux][LOCAL_ROUTER].allocated == true) {
+				if (neighborhood[j].cost < min_cost) {
+					min_cost = neighborhood[j].cost;
+					neighbor_min_cost = aux;
+				}
 			}
 		}
 
@@ -364,13 +371,16 @@ void* receiver_func(void *data) {
 				if (pck->id_dst == LOCAL_ROUTER) {
 					//Se este roteador for o destino, imprime a msg
 					pthread_mutex_lock(&printf_mutex);
-					printf("\nMensagem de %d:                                 \n", pck->id_src);
-					printf("%s\n\n", pck->data);
+					printf("-----\n\nMensagem de %d:                                 \n", pck->id_src);
+					printf("%s\n\n-----\n", pck->data);
 					pthread_mutex_unlock(&printf_mutex);
 				} else {
+					//se já estourou a quantidade de saltos máxima, para de encaminhar.
+					if (pck->jump > qt_links) break;
+					(pck->jump)++;
 					//Se o roteador não é o destino, encaminha ao próximo roteador.
 					pthread_mutex_lock(&printf_mutex);
-					printf("\nRoteador %d encaminhando mensagem com # sequência %d para o destino %d.\n\n", LOCAL_ROUTER, pck->seq_number, pck->id_dst);
+					printf("-----\nRoteador %d encaminhando mensagem de %d com # sequência %d para o destino %d.\n-----\n", LOCAL_ROUTER, pck->id_src, pck->seq_number, pck->id_dst);
 					pthread_mutex_unlock(&printf_mutex);
 					//Verifica qual é o vizinho que leva ao destino da mensagem
 					neighbor_index = whos_the_next(pck->id_dst);
@@ -421,6 +431,8 @@ packet create_pck(int id_src, int id_dst, int type, void* message) {
 	pck.id_src = id_src;
 	pck.id_dst = id_dst;
 	pck.type = type;
+	pck.seq_number = SEQ_NUMBER++;
+	pck.jump = 0;
 	strcpy(pck.data, message);
 	return pck;
 }
@@ -437,6 +449,12 @@ void* sender_func(void *data) {
 	while(1) {
 		scanf("%d", &id_dst);
 		getchar();
+		if (id_dst == LOCAL_ROUTER) {
+			pthread_mutex_lock(&printf_mutex);
+			printf("----\n !!! O roteador %d é você mesmo! !!!\n-----\n", id_dst);
+			pthread_mutex_unlock(&printf_mutex);
+			continue;
+		}
 		
 		pthread_mutex_lock(&printf_mutex);
 		printf("Escreva a mensagem (limite de 100 caracteres): ");
@@ -503,11 +521,13 @@ void* dv_sender_func(void *data) {
 	Cria 3 threads, uma para receber, outra para enviar e outra para atualizar os vetores-distância
 */
 void start_router() {
+	pthread_t threads[3];
+	
 	printf("\n##############\n");
 	printf("DIGITE O ID DO ROTEADOR QUE QUISER\nENVIAR A MENSAGEM A QUALQUER MOMENTO!\n");
 	printf("##############\n\n");
+	SEQ_NUMBER = 1;
 	
-	pthread_t threads[3];
 	pthread_create(&(threads[0]), NULL, receiver_func, NULL);
 	pthread_create(&(threads[1]), NULL, sender_func, NULL);
 	pthread_create(&(threads[2]), NULL, dv_sender_func, NULL);
