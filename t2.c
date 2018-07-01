@@ -582,7 +582,7 @@ void print_dv_table() {
 
 		printf("%d\t|", i);
 		for (j = 0; j < MAX_ROUTERS; j++) {
-			if (!dv_table_.distance[i][j].allocated)
+			if (! dv_table_.distance[i][j].allocated && ! dv_table_.distance[LOCAL_ROUTER][j].allocated)
 				continue;
 				
 			if (dv_table_.distance[i][j].cost == INFINITE)
