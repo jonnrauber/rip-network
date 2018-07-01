@@ -1,5 +1,5 @@
 #define MAX_ROUTERS 100
-#define INFINITE 999
+#define INFINITE 20
 
 #define MSGLEN 100
 #define BUFLEN sizeof(packet)
@@ -7,8 +7,8 @@
 #define TYPE_DATA 1
 #define TYPE_DV 2
 
-#define TRIES_UNTIL_DESCONNECT 1
-#define TIMEOUT 5
+#define TRIES_UNTIL_DESCONNECT 3
+#define TIMEOUT 2
 
 #define DV_RESEND_INTERVAL 15
 
@@ -62,5 +62,5 @@ void start_router();
 void* update_dv(void* data);
 int update_dv_table(distance_vector* dv, int id_neighbor);
 unsigned int whos_the_next(int id_dst);
-void send_dv();
+void send_dv(dv_table table);
 void update_after_error(int id_dst);

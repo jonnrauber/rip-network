@@ -180,16 +180,12 @@ void send_message(packet* pck, neighbor* link) {
 	if (!ack_received) {
 		pthread_mutex_lock(&printf_mutex);
 		printf("Roteador %d inalcançável após %d tentativas com estouro de timeout.\n", link->id_dst, TRIES_UNTIL_DESCONNECT);
-		pthread_mutex_unlock(&printf_mutex);
 		
 		update_after_error(link->id_dst);
 		
-		pthread_mutex_lock(&printf_mutex);
 		printf("ERRO CALCULADO\n");
 		print_dv_table();
 		pthread_mutex_unlock(&printf_mutex);
-		
-		send_dv();
 	}
 }
 
@@ -293,13 +289,14 @@ int update_dv_table(distance_vector* dv, int id_src) {
 		for (j = 0; j < qt_links; j++) {
 			int aux = neighborhood[j].id_dst; 
 			int cost = dv_table_.distance[aux][i].cost + dv_table_.distance[aux][LOCAL_ROUTER].cost;
-			if (cost < min_cost) {
+			if (dv_table_.distance[aux][LOCAL_ROUTER].allocated == true && cost < min_cost) {
 				min_cost = cost;
 				neighbor_min_cost = aux;
 			}
 		}
 
-		if (min_cost < dv_table_.distance[LOCAL_ROUTER][i].cost) {
+		//if (min_cost < dv_table_.distance[LOCAL_ROUTER][i].cost) {
+		if (min_cost != dv_table_.distance[LOCAL_ROUTER][i].cost) {
 			retorno = PRINT_AND_SEND_TABLE;
 			dv_table_.distance[LOCAL_ROUTER][i].cost = min_cost;
 			dv_table_.distance[LOCAL_ROUTER][i].id_neighbor = neighbor_min_cost;
@@ -317,14 +314,12 @@ void* update_dv(void* data) {
 	dv_payload* dv_msg = (dv_payload *)data;
 	int changes = update_dv_table(dv_msg->dv, dv_msg->id_src);
 	
-	if (changes > 0) {
+	if (changes > 0) { 
 		pthread_mutex_lock(&printf_mutex);
 		printf("Alteração da tabela após receber DV do roteador %d:\n", dv_msg->id_src);
+		print_unique_dv(dv_msg->dv);
 		print_dv_table();
 		pthread_mutex_unlock(&printf_mutex);
-	}		
-	if (changes == PRINT_AND_SEND_TABLE) {
-		send_dv();
 	}
 	pthread_exit(NULL);
 }
@@ -388,12 +383,12 @@ void* receiver_func(void *data) {
 				
 			break;
 			case TYPE_DV: ;
-				//pthread_mutex_lock(&printf_mutex);
-				//printf("Recebido vetor distância do roteador %d. Conteúdo: \n", pck->id_src);
-				//print_unique_dv(pck->dv.dv);
-				//printf("Vetor atual:\n");
-				//print_unique_dv(dv_table_.distance[pck->id_src]);
-				//pthread_mutex_unlock(&printf_mutex);
+				/*pthread_mutex_lock(&printf_mutex);
+				printf("Recebido vetor distância do roteador %d. Conteúdo: \n", pck->id_src);
+				print_unique_dv(pck->dv.dv);
+				printf("Vetor atual:\n");
+				print_unique_dv(dv_table_.distance[pck->id_src]);
+				pthread_mutex_unlock(&printf_mutex);*/
 				
 				/* 
 					cria thread para aplicar a atualização de vetor-distância,
@@ -438,9 +433,6 @@ void* sender_func(void *data) {
 	
 	// loop infinito, sempre espera por novos envios
 	while(1) {
-		pthread_mutex_lock(&printf_mutex);
-		printf("\nEscolha o roteador de destino: "); 
-		pthread_mutex_unlock(&printf_mutex);
 		scanf("%d", &id_dst);
 		getchar();
 		
@@ -466,13 +458,13 @@ void* sender_func(void *data) {
 /**
 	Envia o vetor distância para os vizinhos.
 */
-void send_dv() {
+void send_dv(dv_table table) {
 	int i;
 	packet pck;
 	pck.id_src = LOCAL_ROUTER;
 	pck.type = TYPE_DV;
 	pck.dv.id_src = LOCAL_ROUTER;
-	memcpy(pck.dv.dv, dv_table_.distance[LOCAL_ROUTER], sizeof(distance_vector) * MAX_ROUTERS);
+	memcpy(pck.dv.dv, table.distance[LOCAL_ROUTER], sizeof(distance_vector) * MAX_ROUTERS);
 	
 	for (i = 0; i < qt_links; i++) {
 		send_message(&pck, &neighborhood[i]);
@@ -492,7 +484,7 @@ void* dv_sender_func(void *data) {
 		printf("\n");
 		pthread_mutex_unlock(&printf_mutex);
 		
-		send_dv();
+		send_dv(dv_table_);
 		
 		pthread_mutex_lock(&printf_mutex);
 		printf("vetor distancia enviado a todos os vizinhos, esperando %d segundos para reenviar...\n", DV_RESEND_INTERVAL);
