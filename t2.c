@@ -34,12 +34,11 @@ void print_unique_dv(distance_vector* dv) {
 	bool print_comma = false;
 	for (i = 0; i < MAX_ROUTERS; i++) {
 		if (dv[i].allocated) {
-			if (print_comma) printf(", ");
-			printf("%d -> %d", i, dv[i].cost);
+			if (print_comma) printf(",");
+			printf("%d->%d", i, dv[i].cost);
 			print_comma = true;
 		}
 	}
-	printf("\n");
 }
 
 /**
@@ -141,7 +140,7 @@ void send_message(packet* pck, neighbor* link) {
 
 	if(dv_table_.distance[LOCAL_ROUTER][link->id_dst].cost == INFINITE){
 		pthread_mutex_lock(&printf_mutex);
-		printf("Impossível alcançar o roteador %d.\n", link->id_dst);
+		printf("-----\nImpossível alcançar o roteador %d.\n-----\n", link->id_dst);
 		pthread_mutex_unlock(&printf_mutex);
 		return;
 	}
@@ -179,12 +178,13 @@ void send_message(packet* pck, neighbor* link) {
 	*/
 	if (!ack_received) {
 		pthread_mutex_lock(&printf_mutex);
-		printf("Roteador %d inalcançável após %d tentativas com estouro de timeout.\n", link->id_dst, TRIES_UNTIL_DESCONNECT);
+		printf("-----\nRoteador %d inalcançável após %d tentativas com estouro de timeout.\n", link->id_dst, TRIES_UNTIL_DESCONNECT);
 		
 		update_after_error(link->id_dst);
 		
 		printf("ERRO CALCULADO\n");
 		print_dv_table();
+		printf("-----\n");
 		pthread_mutex_unlock(&printf_mutex);
 	}
 }
@@ -316,9 +316,11 @@ void* update_dv(void* data) {
 	
 	if (changes > 0) { 
 		pthread_mutex_lock(&printf_mutex);
-		printf("Alteração da tabela após receber DV do roteador %d:\n", dv_msg->id_src);
+		printf("-----\nAlteração da tabela após receber DV do roteador %d:\n", dv_msg->id_src);
 		print_unique_dv(dv_msg->dv);
+		printf("\n");
 		print_dv_table();
+		printf("-----\n");
 		pthread_mutex_unlock(&printf_mutex);
 	}
 	pthread_exit(NULL);
@@ -362,13 +364,13 @@ void* receiver_func(void *data) {
 				if (pck->id_dst == LOCAL_ROUTER) {
 					//Se este roteador for o destino, imprime a msg
 					pthread_mutex_lock(&printf_mutex);
-					printf("\rMensagem de %d:                                 \n", pck->id_src);
+					printf("\nMensagem de %d:                                 \n", pck->id_src);
 					printf("%s\n\n", pck->data);
 					pthread_mutex_unlock(&printf_mutex);
 				} else {
 					//Se o roteador não é o destino, encaminha ao próximo roteador.
 					pthread_mutex_lock(&printf_mutex);
-					printf("\rRoteador %d encaminhando mensagem com # sequência %d para o destino %d.\n", LOCAL_ROUTER, pck->seq_number, pck->id_dst);
+					printf("\nRoteador %d encaminhando mensagem com # sequência %d para o destino %d.\n\n", LOCAL_ROUTER, pck->seq_number, pck->id_dst);
 					pthread_mutex_unlock(&printf_mutex);
 					//Verifica qual é o vizinho que leva ao destino da mensagem
 					neighbor_index = whos_the_next(pck->id_dst);
@@ -478,7 +480,7 @@ void* dv_sender_func(void *data) {
 	
 	while (1) {
 		pthread_mutex_lock(&printf_mutex);
-		printf("Envio periódico de Vetor Distância\n");		
+		printf("-----\nEnvio periódico de Vetor Distância\n");		
 		printf("Enviando o DV: ");
 		print_unique_dv(dv_table_.distance[LOCAL_ROUTER]);
 		printf("\n");
@@ -487,7 +489,7 @@ void* dv_sender_func(void *data) {
 		send_dv(dv_table_);
 		
 		pthread_mutex_lock(&printf_mutex);
-		printf("vetor distancia enviado a todos os vizinhos, esperando %d segundos para reenviar...\n", DV_RESEND_INTERVAL);
+		printf("-----\nTabela enviada a todos os vizinhos, esperando %d segundos para reenviar...\n-----\n", DV_RESEND_INTERVAL);
 		pthread_mutex_unlock(&printf_mutex);
 		
 		sleep (DV_RESEND_INTERVAL);
@@ -501,6 +503,10 @@ void* dv_sender_func(void *data) {
 	Cria 3 threads, uma para receber, outra para enviar e outra para atualizar os vetores-distância
 */
 void start_router() {
+	printf("\n##############\n");
+	printf("DIGITE O ID DO ROTEADOR QUE QUISER\nENVIAR A MENSAGEM A QUALQUER MOMENTO!\n");
+	printf("##############\n\n");
+	
 	pthread_t threads[3];
 	pthread_create(&(threads[0]), NULL, receiver_func, NULL);
 	pthread_create(&(threads[1]), NULL, sender_func, NULL);
@@ -515,11 +521,12 @@ void start_router() {
 */
 void print_neighbors() {
 	int i;
-
-	printf("----- Vizinhos do roteador %d -----\n", LOCAL_ROUTER);
+	
+	printf("----- VIZINHOS DO ROTEADOR %d -----\n", LOCAL_ROUTER);
 	for (i = 0; i < qt_links; i++) {
-		printf("router %d cost %d\n", neighborhood[i].id_dst, neighborhood[i].cost);
+		printf("* ID: %d CUSTO DO ENLACE: %d\n", neighborhood[i].id_dst, neighborhood[i].cost);
 	}
+	printf("-----------------------------------\n\n");
 }
 
 /**
@@ -551,8 +558,11 @@ void print_dv_table() {
 		for (j = 0; j < MAX_ROUTERS; j++) {
 			if (!dv_table_.distance[i][j].allocated)
 				continue;
-
-			printf("\t%d|", dv_table_.distance[i][j].cost);
+				
+			if (dv_table_.distance[i][j].cost == INFINITE)
+				printf("\t-|");
+			else 
+				printf("\t%d|", dv_table_.distance[i][j].cost);
 		}
 		printf("\n");
 	}
@@ -609,15 +619,17 @@ int main(int argc, char const *argv[]) {
 		exit(-3);
 	}
 
+	printf("%%%% INICIANDO ROTEADOR %d....... %%%%\n\n", LOCAL_ROUTER);
+
 	//cria um vetor com os vizinhos do roteador
 	load_neighbors();
 
 	//inicia a estrutura vetor-distancia
 	start_distance_vector();
-
+	
 	print_neighbors();
 	print_dv_table();
-
+	
 	//inicia a operação do roteador
 	start_router();
 }
